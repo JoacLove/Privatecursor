@@ -16,5 +16,10 @@ Server-rute `GET /api/fleet` krever Cursor-identitet og henter:
 
 - `project/getProjects`
 - `vessel/getVesselLocations`
+- `map/getTracks` (TGS Ramform-fartøy, siste ~24 t)
+- `map/getProjectArea` (aktive survey-prosjekter)
+- `weather/getObservations` / `weather/getForecast`
+
+Kart-, spor- og værkall feiler mykt: kjerne (prosjekt + fartøy) leveres likevel. Secrets holdes server-side og redakteres i rå JSON.
 
 Auth-header: `AUTHTOKEN`.

@@ -7,15 +7,25 @@ import {
   Marker,
   Popup,
   Tooltip,
+  Polyline,
+  GeoJSON,
   useMap,
 } from "react-leaflet";
 import type { Marker as LeafletMarker } from "leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import type { VesselFeature } from "@/lib/types";
+import type {
+  ProjectAreaFeature,
+  TrackFeature,
+  VesselFeature,
+} from "@/lib/types";
 
 type Props = {
   vessels: VesselFeature[];
+  tracks?: TrackFeature[];
+  projectAreas?: ProjectAreaFeature[];
+  showTracks?: boolean;
+  showAreas?: boolean;
   focusId: string | null;
   focusNonce?: number;
 };
@@ -31,6 +41,16 @@ const TGS_RAMFORM_LABELS: { match: string; label: string }[] = [
   { match: "victory", label: "Victory" },
 ];
 
+const TRACK_COLORS = [
+  "#0c6b6b",
+  "#1d4f91",
+  "#9a3412",
+  "#166534",
+  "#7c3aed",
+  "#b45309",
+  "#0e7490",
+];
+
 /**
  * Permanent map label for known TGS Ramform vessels.
  * Matches case-insensitively with "Ramform …" / "R …" prefixes;
@@ -41,7 +61,6 @@ function tgsRamformLabel(name: string): string | null {
   if (!n) return null;
   if (/\bcable\b|\bstreamer\b/.test(n)) return null;
 
-  // Require a Ramform-style prefix so we don't label unrelated "Victory"/"Hyperion" AIS hits.
   const short = TGS_RAMFORM_LABELS.map((x) => x.match).join("|");
   const ramformLike = new RegExp(
     `^(?:ramform|rform|r)\\s+(?:${short}|soverign)\\b|\\bramform\\b.*\\b(?:${short}|soverign)\\b`,
@@ -51,7 +70,6 @@ function tgsRamformLabel(name: string): string | null {
   for (const { match, label } of TGS_RAMFORM_LABELS) {
     if (new RegExp(`\\b${match}\\b`).test(n)) return label;
   }
-  // Common misspelling from operators / notes
   if (/\bsoverign\b/.test(n)) return "Sovereign";
   return null;
 }
@@ -65,15 +83,12 @@ function bearingDegrees(vessel: VesselFeature): number | undefined {
         ? vessel.course
         : undefined;
   if (raw == null || !Number.isFinite(raw)) return undefined;
-  // Normalize into [0, 360)
   return ((raw % 360) + 360) % 360;
 }
 
 function vesselIcon(online: boolean, active: boolean, bearing?: number) {
   const hasBearing = bearing != null;
-  const courseStyle = hasBearing
-    ? `style="--course:${bearing}deg"`
-    : "";
+  const courseStyle = hasBearing ? `style="--course:${bearing}deg"` : "";
   const shape = hasBearing
     ? `<div class="hull arrow" ${courseStyle}><svg viewBox="0 0 24 28" aria-hidden="true"><path d="M12 1.5 L21.5 26.5 L12 21 L2.5 26.5 Z"/></svg></div>`
     : `<div class="hull neutral"></div>`;
@@ -130,7 +145,9 @@ function FitVessels({ vessels, focusId, focusNonce = 0 }: Props) {
       map.setView([vessels[0].lat, vessels[0].lon], 5);
       return;
     }
-    const bounds = L.latLngBounds(vessels.map((v) => [v.lat, v.lon] as [number, number]));
+    const bounds = L.latLngBounds(
+      vessels.map((v) => [v.lat, v.lon] as [number, number]),
+    );
     if (!bounds.isValid()) {
       map.setView([20, 0], 2);
       return;
@@ -213,9 +230,99 @@ function VesselMarker({
   );
 }
 
-export default function FleetMap({ vessels, focusId, focusNonce = 0 }: Props) {
+function TrackLayers({ tracks }: { tracks: TrackFeature[] }) {
+  return (
+    <>
+      {tracks.map((track, i) => (
+        <Polyline
+          key={`${track.vesselIMO ?? track.vessel}-${i}`}
+          positions={track.positions}
+          pathOptions={{
+            color: TRACK_COLORS[i % TRACK_COLORS.length],
+            weight: 3,
+            opacity: 0.85,
+            lineCap: "round",
+            lineJoin: "round",
+          }}
+        >
+          <Popup>
+            <div className="popup-title">{track.vessel}</div>
+            <dl className="popup-grid">
+              <dt>Punkter</dt>
+              <dd>{track.points ?? track.positions.length}</dd>
+              <dt>Fra</dt>
+              <dd>{track.firstFix || "—"}</dd>
+              <dt>Til</dt>
+              <dd>{track.lastFix || "—"}</dd>
+            </dl>
+          </Popup>
+        </Polyline>
+      ))}
+    </>
+  );
+}
+
+function AreaLayers({ areas }: { areas: ProjectAreaFeature[] }) {
+  const collection = useMemo(
+    () => ({
+      type: "FeatureCollection" as const,
+      features: areas.map((area, i) => ({
+        type: "Feature" as const,
+        id: `${area.projectId}-${i}`,
+        properties: {
+          name: area.name,
+          projectId: area.projectId,
+          projectName: area.projectName,
+          kind: area.kind,
+          areaKm2: area.areaKm2,
+        },
+        geometry: area.geometry as GeoJSON.Geometry,
+      })),
+    }),
+    [areas],
+  );
+
+  if (areas.length === 0) return null;
+
+  return (
+    <GeoJSON
+      key={areas.map((a) => `${a.projectId}:${a.name}`).join("|")}
+      data={collection as GeoJSON.FeatureCollection}
+      style={() => ({
+        color: "#084f54",
+        weight: 1.5,
+        opacity: 0.9,
+        fillColor: "#0c6b6b",
+        fillOpacity: 0.18,
+      })}
+      onEachFeature={(feature, layer) => {
+        const props = feature.properties || {};
+        const title = props.name || "Project area";
+        const project = props.projectName
+          ? `<div class="popup-sub">${props.projectName}</div>`
+          : "";
+        const km =
+          props.areaKm2 != null
+            ? `<div>${Number(props.areaKm2).toFixed(0)} km²</div>`
+            : "";
+        layer.bindPopup(
+          `<div class="popup-title">${title}</div>${project}${km}`,
+        );
+      }}
+    />
+  );
+}
+
+export default function FleetMap({
+  vessels,
+  tracks = [],
+  projectAreas = [],
+  showTracks = true,
+  showAreas = true,
+  focusId,
+  focusNonce = 0,
+}: Props) {
   const plotted = useMemo(() => {
-    // Keep labeled TGS Ramform ships even when the fleet is capped.
     const labeled: VesselFeature[] = [];
     const rest: VesselFeature[] = [];
     for (const v of vessels) {
@@ -240,6 +347,8 @@ export default function FleetMap({ vessels, focusId, focusNonce = 0 }: Props) {
       />
       <InvalidateSize />
       <FitVessels vessels={plotted} focusId={focusId} focusNonce={focusNonce} />
+      {showAreas ? <AreaLayers areas={projectAreas} /> : null}
+      {showTracks ? <TrackLayers tracks={tracks} /> : null}
       {plotted.map((vessel) => (
         <VesselMarker
           key={vessel.id}
