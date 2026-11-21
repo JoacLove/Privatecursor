@@ -1,38 +1,20 @@
-# Havian API
+# Havian Fleet
 
-Lokal klient for Havian public API (GET-only), basert på `api.pdf`.
+Kart og tabell over TGS-prosjekter og fartøyposisjoner fra Havian Global Manager.
 
-## Oppsett
+## Lokal utvikling
 
-1. Kopier verdier fra **Global Manager → user menu → API**:
-   - Endpoint (`https://<firma>.havian.com/<serverKey>`)
-   - ApiKey
-   - AuthKey
-2. Fyll inn `/agent/havain-api/.env` (allerede opprettet, gitignorert).
-3. Installer avhengigheter:
+1. Sett secrets i `.env` (se `.env.example`): `HAVIAN_ENDPOINT`, `HAVIAN_API_KEY`, `HAVIAN_AUTH_KEY`, `HAVIAN_AUTH_HEADER=AUTHTOKEN`.
+2. `npm install && npm run dev`
+3. Åpne http://127.0.0.1:3000
 
-```bash
-cd /agent/havain-api
-npm install
-```
+Uten secrets brukes merket sample-data.
 
-## Test tilkobling
+## API
 
-```bash
-npm run test:connection
-```
+Server-rute `GET /api/fleet` krever Cursor-identitet og henter:
 
-Kjører `function=project&action=getTimingTrack` (eksemplet fra dokumentasjonen).
+- `project/getProjects`
+- `vessel/getVesselLocations`
 
-## Hent data
-
-```bash
-npm run get -- --function=vessel --action=getVesselLocations
-npm run get -- --function=hse --action=get --projects=1234
-```
-
-## Viktig
-
-- Ikke lim inn nøkler i chat.
-- Ikke commit `.env`.
-- Offentlig API er kun GET.
+Auth-header: `AUTHTOKEN`.
