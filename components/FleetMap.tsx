@@ -21,8 +21,8 @@ function vesselIcon(online: boolean, active: boolean) {
   return L.divIcon({
     className: `vessel-marker${online ? " online" : " offline"}${active ? " active" : ""}`,
     html: '<div class="hull"></div>',
-    iconSize: [22, 22],
-    iconAnchor: [11, 11],
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
   });
 }
 
@@ -44,11 +44,20 @@ function FitVessels({ vessels, focusId }: Props) {
       return;
     }
     if (vessels.length === 1) {
-      map.setView([vessels[0].lat, vessels[0].lon], 4);
+      map.setView([vessels[0].lat, vessels[0].lon], 5);
       return;
     }
-    const bounds = L.latLngBounds(vessels.map((v) => [v.lat, v.lon]));
-    map.fitBounds(bounds.pad(0.18), { animate: true, duration: 0.7 });
+    const bounds = L.latLngBounds(vessels.map((v) => [v.lat, v.lon] as [number, number]));
+    if (!bounds.isValid()) {
+      map.setView([20, 0], 2);
+      return;
+    }
+    map.fitBounds(bounds.pad(0.25), {
+      animate: true,
+      duration: 0.7,
+      maxZoom: 8,
+      padding: [36, 36],
+    });
   }, [vessels, focusId, map]);
 
   return null;
@@ -66,9 +75,8 @@ export default function FleetMap({ vessels, focusId }: Props) {
       worldCopyJump
     >
       <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>'
-        url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-        subdomains="abcd"
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         maxZoom={19}
       />
       <FitVessels vessels={plotted} focusId={focusId} />
@@ -76,12 +84,17 @@ export default function FleetMap({ vessels, focusId }: Props) {
         <CircleMarker
           key={`pin-${vessel.id}`}
           center={[vessel.lat, vessel.lon]}
-          radius={5}
+          radius={focusId === vessel.id ? 9 : 7}
           pathOptions={{
-            color: "#1f7a4d",
-            fillColor: "#2f9e66",
-            fillOpacity: 0.9,
-            weight: 1.5,
+            color: focusId === vessel.id ? "#0b3d91" : "#0f5132",
+            fillColor: vessel.online
+              ? focusId === vessel.id
+                ? "#1d4f91"
+                : "#1f7a4d"
+              : "#64748b",
+            fillOpacity: 0.95,
+            weight: 2,
+            opacity: 0.95,
           }}
         />
       ))}

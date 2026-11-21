@@ -225,6 +225,104 @@ select {
   min-width: 10rem;
 }
 
+.api-status {
+  margin: 0 1.4rem 0.85rem;
+  padding: 0.85rem 1rem;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.9);
+  display: grid;
+  gap: 0.45rem;
+}
+
+.api-pill {
+  display: inline-flex;
+  width: fit-content;
+  padding: 0.28rem 0.7rem;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 0.86rem;
+}
+
+.api-pill.ok {
+  background: rgba(22, 101, 52, 0.12);
+  color: var(--ok);
+}
+
+.api-pill.bad {
+  background: rgba(154, 52, 18, 0.12);
+  color: var(--warn);
+}
+
+.api-msg {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.92rem;
+}
+
+.api-endpoints {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.api-endpoints li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: baseline;
+  font-size: 0.86rem;
+}
+
+.api-endpoints .ok {
+  color: var(--ok);
+}
+
+.api-endpoints .bad {
+  color: var(--warn);
+}
+
+.api-endpoints .hdr {
+  color: var(--ink-soft);
+}
+
+.raw-json {
+  margin-top: 1rem;
+  padding: 1rem;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(18, 32, 51, 0.92);
+  color: #e8f2f4;
+}
+
+.raw-json h2 {
+  margin: 0 0 0.7rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.raw-json details {
+  margin-bottom: 0.6rem;
+}
+
+.raw-json summary {
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+}
+
+.raw-json pre {
+  margin: 0.5rem 0 0;
+  max-height: 360px;
+  overflow: auto;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .stage {
   padding: 0 1.4rem 1.4rem;
   min-height: 0;
@@ -403,12 +501,12 @@ th {
 }
 
 .vessel-marker .hull {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border-radius: 50% 50% 45% 45%;
   background: var(--vessel);
   border: 2px solid #fff;
-  box-shadow: 0 2px 8px rgba(8, 40, 55, 0.35);
+  box-shadow: 0 2px 10px rgba(8, 40, 55, 0.45), 0 0 0 1px rgba(8, 40, 55, 0.2);
   transform: rotate(-20deg);
 }
 
