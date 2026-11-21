@@ -1,3 +1,3 @@
-# Nytt prosjekt
+# Havain API
 
-Arbeidsmappe for nytt prosjekt. Klar for git stash.
+Arbeidsmappe for Havain API.
