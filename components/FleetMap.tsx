@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import {
   MapContainer,
   TileLayer,
@@ -15,20 +15,33 @@ import type { Marker as LeafletMarker } from "leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type {
+  BackgroundTarget,
+  BackgroundTargetKind,
   ProjectAreaFeature,
   TrackFeature,
   VesselFeature,
 } from "@/lib/types";
-
 type Props = {
   vessels: VesselFeature[];
   tracks?: TrackFeature[];
   projectAreas?: ProjectAreaFeature[];
   showTracks?: boolean;
   showAreas?: boolean;
+  otherVessels?: BackgroundTarget[];
+  showOther?: boolean;
   focusId: string | null;
   focusNonce?: number;
 };
+
+/** Leaflet bindPopup takes raw HTML; Havian strings must not be interpreted as markup. */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 /** Short display labels for the TGS Ramform seismic vessels. */
 const TGS_RAMFORM_LABELS: { match: string; label: string }[] = [
@@ -125,18 +138,29 @@ function InvalidateSize() {
 
 function FitVessels({ vessels, focusId, focusNonce = 0 }: Props) {
   const map = useMap();
+  const vesselsRef = useRef(vessels);
+  vesselsRef.current = vessels;
+
+  // Refit only when the set of vessels changes (search/filter), not when a
+  // periodic refresh moves positions — that would keep resetting the user's view.
+  const fitKey = useMemo(
+    () => vessels.map((v) => v.id).sort().join("|"),
+    [vessels],
+  );
 
   useEffect(() => {
-    map.invalidateSize({ animate: false });
-    if (focusId) {
-      const hit = vessels.find((v) => v.id === focusId);
-      if (hit) {
-        map.flyTo([hit.lat, hit.lon], Math.max(map.getZoom(), 5), {
-          duration: 0.8,
-        });
-      }
-      return;
+    if (!focusId) return;
+    const hit = vesselsRef.current.find((v) => v.id === focusId);
+    if (hit) {
+      map.flyTo([hit.lat, hit.lon], Math.max(map.getZoom(), 5), {
+        duration: 0.8,
+      });
     }
+  }, [focusId, focusNonce, map]);
+
+  useEffect(() => {
+    const vessels = vesselsRef.current;
+    map.invalidateSize({ animate: false });
     if (vessels.length === 0) {
       map.setView([20, 0], 2);
       return;
@@ -158,12 +182,12 @@ function FitVessels({ vessels, focusId, focusNonce = 0 }: Props) {
       maxZoom: 8,
       padding: [36, 36],
     });
-  }, [vessels, focusId, focusNonce, map]);
+  }, [fitKey, map]);
 
   return null;
 }
 
-function VesselMarker({
+const VesselMarker = memo(function VesselMarker({
   vessel,
   active,
   focusNonce = 0,
@@ -228,6 +252,45 @@ function VesselMarker({
       </Popup>
     </Marker>
   );
+});
+
+const BACKGROUND_STYLE: Record<BackgroundTargetKind, { color: string; label: string }> = {
+  ais: { color: "#64748b", label: "AIS" },
+  aton: { color: "#b45309", label: "ATON / base" },
+  cable: { color: "#7c3aed", label: "Kabel" },
+};
+
+/** Hundreds of non-fleet AIS targets: drawn imperatively on one canvas, not as React/DOM markers. */
+function BackgroundTargetsLayer({ targets }: { targets: BackgroundTarget[] }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const renderer = L.canvas({ padding: 0.5 });
+    const group = L.layerGroup();
+    for (const t of targets) {
+      const style = BACKGROUND_STYLE[t.kind];
+      L.circleMarker([t.lat, t.lon], {
+        renderer,
+        radius: 3,
+        weight: 1,
+        color: style.color,
+        fillColor: style.color,
+        fillOpacity: 0.55,
+        opacity: 0.8,
+      })
+        .bindTooltip(
+          `${escapeHtml(t.name)}<br><small>${style.label}${t.objectType ? ` · ${escapeHtml(t.objectType)}` : ""}${t.ageH ? ` · ${escapeHtml(t.ageH)}` : ""}</small>`,
+          { direction: "top", offset: [0, -4] },
+        )
+        .addTo(group);
+    }
+    group.addTo(map);
+    return () => {
+      group.remove();
+    };
+  }, [targets, map]);
+
+  return null;
 }
 
 function TrackLayers({ tracks }: { tracks: TrackFeature[] }) {
@@ -297,9 +360,9 @@ function AreaLayers({ areas }: { areas: ProjectAreaFeature[] }) {
       })}
       onEachFeature={(feature, layer) => {
         const props = feature.properties || {};
-        const title = props.name || "Project area";
+        const title = escapeHtml(String(props.name || "Project area"));
         const project = props.projectName
-          ? `<div class="popup-sub">${props.projectName}</div>`
+          ? `<div class="popup-sub">${escapeHtml(String(props.projectName))}</div>`
           : "";
         const km =
           props.areaKm2 != null
@@ -313,12 +376,16 @@ function AreaLayers({ areas }: { areas: ProjectAreaFeature[] }) {
   );
 }
 
+const EMPTY_TARGETS: BackgroundTarget[] = [];
+
 export default function FleetMap({
   vessels,
   tracks = [],
   projectAreas = [],
   showTracks = true,
   showAreas = true,
+  otherVessels = EMPTY_TARGETS,
+  showOther = false,
   focusId,
   focusNonce = 0,
 }: Props) {
@@ -348,13 +415,16 @@ export default function FleetMap({
       <InvalidateSize />
       <FitVessels vessels={plotted} focusId={focusId} focusNonce={focusNonce} />
       {showAreas ? <AreaLayers areas={projectAreas} /> : null}
+      {showOther && otherVessels.length > 0 ? (
+        <BackgroundTargetsLayer targets={otherVessels} />
+      ) : null}
       {showTracks ? <TrackLayers tracks={tracks} /> : null}
       {plotted.map((vessel) => (
         <VesselMarker
           key={vessel.id}
           vessel={vessel}
           active={focusId === vessel.id}
-          focusNonce={focusNonce}
+          focusNonce={focusId === vessel.id ? focusNonce : 0}
         />
       ))}
     </MapContainer>
