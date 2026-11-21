@@ -6,6 +6,7 @@ import {
   TileLayer,
   Marker,
   Popup,
+  Tooltip,
   useMap,
 } from "react-leaflet";
 import type { Marker as LeafletMarker } from "leaflet";
@@ -17,6 +18,42 @@ type Props = {
   focusId: string | null;
   focusNonce?: number;
 };
+
+/** Short display labels for the TGS Ramform seismic vessels. */
+const TGS_RAMFORM_LABELS: { match: string; label: string }[] = [
+  { match: "titan", label: "TITAN" },
+  { match: "atlas", label: "ATLAS" },
+  { match: "vanguard", label: "Vanguard" },
+  { match: "hyperion", label: "Hyperion" },
+  { match: "tethys", label: "Tethys" },
+  { match: "sovereign", label: "Sovereign" },
+  { match: "victory", label: "Victory" },
+];
+
+/**
+ * Permanent map label for known TGS Ramform vessels.
+ * Matches case-insensitively with "Ramform …" / "R …" prefixes;
+ * skips streamer cables and unrelated AIS targets that only share a word.
+ */
+function tgsRamformLabel(name: string): string | null {
+  const n = name.toLowerCase().replace(/\s+/g, " ").trim();
+  if (!n) return null;
+  if (/\bcable\b|\bstreamer\b/.test(n)) return null;
+
+  // Require a Ramform-style prefix so we don't label unrelated "Victory"/"Hyperion" AIS hits.
+  const short = TGS_RAMFORM_LABELS.map((x) => x.match).join("|");
+  const ramformLike = new RegExp(
+    `^(?:ramform|rform|r)\\s+(?:${short}|soverign)\\b|\\bramform\\b.*\\b(?:${short}|soverign)\\b`,
+  );
+  if (!ramformLike.test(n)) return null;
+
+  for (const { match, label } of TGS_RAMFORM_LABELS) {
+    if (new RegExp(`\\b${match}\\b`).test(n)) return label;
+  }
+  // Common misspelling from operators / notes
+  if (/\bsoverign\b/.test(n)) return "Sovereign";
+  return null;
+}
 
 /** Prefer heading when present, else course (degrees, 0 = north). */
 function bearingDegrees(vessel: VesselFeature): number | undefined {
@@ -109,13 +146,26 @@ function VesselMarker({
     () => vesselIcon(Boolean(vessel.online), active, bearing),
     [vessel.online, active, bearing],
   );
+  const nameLabel = useMemo(() => tgsRamformLabel(vessel.name), [vessel.name]);
 
   return (
     <Marker
       ref={markerRef}
       position={[vessel.lat, vessel.lon]}
       icon={icon}
+      zIndexOffset={nameLabel ? 400 : 0}
     >
+      {nameLabel ? (
+        <Tooltip
+          permanent
+          direction="top"
+          offset={[0, -16]}
+          opacity={1}
+          className="vessel-name-label"
+        >
+          {nameLabel}
+        </Tooltip>
+      ) : null}
       <Popup>
         <div className="popup-title">{vessel.name}</div>
         <dl className="popup-grid">
@@ -140,7 +190,16 @@ function VesselMarker({
 }
 
 export default function FleetMap({ vessels, focusId, focusNonce = 0 }: Props) {
-  const plotted = useMemo(() => vessels.slice(0, 400), [vessels]);
+  const plotted = useMemo(() => {
+    // Keep labeled TGS Ramform ships even when the fleet is capped.
+    const labeled: VesselFeature[] = [];
+    const rest: VesselFeature[] = [];
+    for (const v of vessels) {
+      if (tgsRamformLabel(v.name)) labeled.push(v);
+      else rest.push(v);
+    }
+    return [...labeled, ...rest].slice(0, 400);
+  }, [vessels]);
 
   return (
     <MapContainer
