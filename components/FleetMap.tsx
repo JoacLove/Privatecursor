@@ -11,6 +11,7 @@ import {
 } from "react-leaflet";
 import type { Marker as LeafletMarker } from "leaflet";
 import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import type { VesselFeature } from "@/lib/types";
 
 type Props = {
@@ -85,10 +86,33 @@ function vesselIcon(online: boolean, active: boolean, bearing?: number) {
   });
 }
 
+/** Leaflet often mounts before the pane has its final size — force a redraw. */
+function InvalidateSize() {
+  const map = useMap();
+
+  useEffect(() => {
+    const refresh = () => map.invalidateSize({ animate: false });
+    refresh();
+    const t1 = window.setTimeout(refresh, 50);
+    const t2 = window.setTimeout(refresh, 250);
+    const t3 = window.setTimeout(refresh, 600);
+    window.addEventListener("resize", refresh);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+      window.clearTimeout(t3);
+      window.removeEventListener("resize", refresh);
+    };
+  }, [map]);
+
+  return null;
+}
+
 function FitVessels({ vessels, focusId, focusNonce = 0 }: Props) {
   const map = useMap();
 
   useEffect(() => {
+    map.invalidateSize({ animate: false });
     if (focusId) {
       const hit = vessels.find((v) => v.id === focusId);
       if (hit) {
@@ -214,6 +238,7 @@ export default function FleetMap({ vessels, focusId, focusNonce = 0 }: Props) {
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         maxZoom={19}
       />
+      <InvalidateSize />
       <FitVessels vessels={plotted} focusId={focusId} focusNonce={focusNonce} />
       {plotted.map((vessel) => (
         <VesselMarker

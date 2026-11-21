@@ -192,28 +192,6 @@ export default function HavianApp() {
         )}
       </section>
 
-      {data?.connection && (
-        <section className="api-status" aria-live="polite">
-          <div className={`api-pill ${data.connection.ok ? "ok" : "bad"}`}>
-            {data.connection.ok ? "Havian API: OK" : "Havian API: FAIL"}
-          </div>
-          <p className="api-msg">{data.connection.message}</p>
-          <ul className="api-endpoints">
-            {data.connection.endpoints.map((ep) => (
-              <li key={`${ep.function}/${ep.action}`}>
-                <code>
-                  {ep.function}/{ep.action}
-                </code>
-                <span className={ep.ok ? "ok" : "bad"}>
-                  {ep.ok ? `HTTP ${ep.status}` : ep.error || `HTTP ${ep.status}`}
-                </span>
-                <span className="hdr">header: {ep.authHeader}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
       <main className="stage">
         {loading && !data ? (
           <div className="state">Henter Havian-data…</div>
@@ -225,7 +203,7 @@ export default function HavianApp() {
             </button>
           </div>
         ) : view === "map" ? (
-          <div className="map-pane">
+          <div className="map-pane" role="region" aria-label="Verdenskart med fartøy">
             <FleetMap vessels={vessels} focusId={focusId} focusNonce={focusNonce} />
             <aside className="side-list">
               <h2>Fartøy ({vessels.length})</h2>
@@ -252,16 +230,44 @@ export default function HavianApp() {
           </div>
         )}
 
+        {data?.connection && (
+          <section className="api-status" aria-live="polite">
+            <details>
+              <summary>
+                <span className={`api-pill ${data.connection.ok ? "ok" : "bad"}`}>
+                  {data.connection.ok ? "Havian API: OK" : "Havian API: FAIL"}
+                </span>
+                <span className="api-msg">{data.connection.message}</span>
+              </summary>
+              <ul className="api-endpoints">
+                {data.connection.endpoints.map((ep) => (
+                  <li key={`${ep.function}/${ep.action}`}>
+                    <code>
+                      {ep.function}/{ep.action}
+                    </code>
+                    <span className={ep.ok ? "ok" : "bad"}>
+                      {ep.ok ? `HTTP ${ep.status}` : ep.error || `HTTP ${ep.status}`}
+                    </span>
+                    <span className="hdr">header: {ep.authHeader}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          </section>
+        )}
+
         {data?.raw && (
           <section className="raw-json">
-            <h2>Raw Havian JSON (secrets redacted)</h2>
-            <details open>
-              <summary>project/getProjects</summary>
-              <pre>{JSON.stringify(data.raw.projects, null, 2)}</pre>
-            </details>
             <details>
-              <summary>vessel/getVesselLocations</summary>
-              <pre>{JSON.stringify(data.raw.vessels, null, 2)}</pre>
+              <summary>Raw Havian JSON (secrets redacted)</summary>
+              <details>
+                <summary>project/getProjects</summary>
+                <pre>{JSON.stringify(data.raw.projects, null, 2)}</pre>
+              </details>
+              <details>
+                <summary>vessel/getVesselLocations</summary>
+                <pre>{JSON.stringify(data.raw.vessels, null, 2)}</pre>
+              </details>
             </details>
           </section>
         )}
