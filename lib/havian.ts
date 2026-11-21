@@ -96,21 +96,57 @@ function extractVessels(body: unknown): VesselFeature[] {
     const lon = Number(coords[0]);
     const lat = Number(coords[1]);
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+
+    const name = String(props.name ?? "Unknown");
+    const objectType = props.objectType ? String(props.objectType) : undefined;
+    const posType = props.posType ? String(props.posType) : undefined;
+    const online = props.online === 1 || props.online === true;
+    const onProject = Boolean(props.onProject);
+
+    // Drop AIS noise: ATON/base stations, cables, unnamed MMSI-only tracks
+    const typeLower = (objectType || "").toLowerCase();
+    if (
+      typeLower === "aton" ||
+      typeLower === "base station" ||
+      typeLower === "sar aircraft"
+    ) {
+      continue;
+    }
+    const nameUpper = name.toUpperCase();
+    if (
+      nameUpper.startsWith("MMSI:") ||
+      nameUpper.includes("CABLE") ||
+      nameUpper.startsWith("V/") ||
+      nameUpper.startsWith("SUBMERGED")
+    ) {
+      continue;
+    }
+    // Prefer fleet-relevant tracks (online, on project, or Havian tracker)
+    const posLower = (posType || "").toLowerCase();
+    const havianTracker =
+      posLower.includes("havian tracker") && !posLower.includes("ais");
+    if (!online && !onProject && !havianTracker) continue;
+
     vessels.push({
       id: String(props.id ?? `${lon},${lat}`),
-      name: String(props.name ?? "Unknown"),
+      name,
       lat,
       lon,
       course: typeof props.course === "number" ? props.course : undefined,
       velocity: typeof props.velocity === "number" ? props.velocity : undefined,
-      online: props.online === 1 || props.online === true,
-      objectType: props.objectType ? String(props.objectType) : undefined,
-      posType: props.posType ? String(props.posType) : undefined,
-      onProject: Boolean(props.onProject),
+      online,
+      objectType,
+      posType,
+      onProject,
       ageH: props.ageH ? String(props.ageH) : undefined,
       gpsTimeH: props.gpsTimeH ? String(props.gpsTimeH) : undefined,
     });
   }
+
+  vessels.sort((a, b) => {
+    if (a.online !== b.online) return a.online ? -1 : 1;
+    return a.name.localeCompare(b.name, "en", { sensitivity: "base" });
+  });
   return vessels;
 }
 
@@ -125,21 +161,26 @@ export async function loadFleet(): Promise<FleetPayload> {
     return sampleFleet();
   }
 
-  const [projectsBody, vesselsBody] = await Promise.all([
-    havianGet("project", "getProjects"),
-    havianGet("vessel", "getVesselLocations"),
-  ]);
+  try {
+    const [projectsBody, vesselsBody] = await Promise.all([
+      havianGet("project", "getProjects"),
+      havianGet("vessel", "getVesselLocations"),
+    ]);
 
-  const projects = extractProjects(projectsBody);
-  const vessels = extractVessels(vesselsBody);
+    const projects = extractProjects(projectsBody);
+    const vessels = extractVessels(vesselsBody);
 
-  return {
-    source: "live",
-    fetchedAt: new Date().toISOString(),
-    companyName: companyNameFrom(vesselsBody) || companyNameFrom(projectsBody),
-    projects,
-    vessels,
-    projectCount: projects.length,
-    vesselCount: vessels.length,
-  };
+    return {
+      source: "live",
+      fetchedAt: new Date().toISOString(),
+      companyName: companyNameFrom(vesselsBody) || companyNameFrom(projectsBody),
+      projects,
+      vessels,
+      projectCount: projects.length,
+      vesselCount: vessels.length,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Havian request failed";
+    return { ...sampleFleet(), error: message };
+  }
 }

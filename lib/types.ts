@@ -33,4 +33,5 @@ export type FleetPayload = {
   vessels: VesselFeature[];
   projectCount: number;
   vesselCount: number;
+  error?: string;
 };
