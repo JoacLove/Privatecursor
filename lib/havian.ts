@@ -1,4 +1,6 @@
 import type {
+  BackgroundTarget,
+  BackgroundTargetKind,
   ConnectionStatus,
   EndpointStatus,
   FleetPayload,
@@ -42,7 +44,17 @@ function redactSecrets(text: string): string {
   let out = text;
   for (const name of ["HAVIAN_API_KEY", "HAVIAN_AUTH_KEY"] as const) {
     const secret = env(name);
-    if (secret) out = out.split(secret).join("***");
+    if (!secret) continue;
+    // Upstream bodies may echo the key URL-encoded or with JSON-escaped slashes.
+    const variants = new Set([
+      secret,
+      encodeURIComponent(secret),
+      secret.replace(/\//g, "\\/"),
+      JSON.stringify(secret).slice(1, -1),
+    ]);
+    for (const v of variants) {
+      if (v) out = out.split(v).join("***");
+    }
   }
   return out;
 }
@@ -160,7 +172,10 @@ function isTgsRamformName(name: string): boolean {
   return ramformLike.test(n);
 }
 
-function extractVessels(body: unknown): VesselFeature[] {
+function extractVessels(
+  body: unknown,
+  background?: BackgroundTarget[],
+): VesselFeature[] {
   const report =
     body && typeof body === "object" && "report" in body
       ? (body as { report?: { geojson?: { features?: unknown[] } } }).report
@@ -187,6 +202,10 @@ function extractVessels(body: unknown): VesselFeature[] {
     const posType = props.posType ? String(props.posType) : undefined;
     const online = props.online === 1 || props.online === true;
     const onProject = Boolean(props.onProject);
+    const id = String(props.id ?? `${lon},${lat}`);
+    const ageH = props.ageH ? String(props.ageH) : undefined;
+    const toBackground = (kind: BackgroundTargetKind) =>
+      background?.push({ id, name, lat, lon, kind, objectType, ageH });
 
     // Drop AIS noise: ATON/base stations, cables, unnamed MMSI-only tracks
     const typeLower = (objectType || "").toLowerCase();
@@ -195,24 +214,27 @@ function extractVessels(body: unknown): VesselFeature[] {
       typeLower === "base station" ||
       typeLower === "sar aircraft"
     ) {
+      toBackground("aton");
       continue;
     }
     const nameUpper = name.toUpperCase();
-    if (
-      nameUpper.startsWith("MMSI:") ||
-      nameUpper.includes("CABLE") ||
-      nameUpper.startsWith("V/") ||
-      nameUpper.startsWith("SUBMERGED")
-    ) {
+    if (nameUpper.includes("CABLE") || nameUpper.startsWith("SUBMERGED")) {
+      toBackground("cable");
+      continue;
+    }
+    if (nameUpper.startsWith("MMSI:") || nameUpper.startsWith("V/")) {
+      toBackground("ais");
       continue;
     }
     // Prefer fleet-relevant tracks (online, on project, or Havian tracker)
     const posLower = (posType || "").toLowerCase();
     const havianTracker =
       posLower.includes("havian tracker") && !posLower.includes("ais");
-    if (!online && !onProject && !havianTracker) continue;
+    if (!online && !onProject && !havianTracker) {
+      toBackground("ais");
+      continue;
+    }
 
-    const id = String(props.id ?? `${lon},${lat}`);
     vessels.push({
       id,
       name,
@@ -534,7 +556,10 @@ export async function loadFleet(): Promise<FleetPayload> {
 
   const coreOk = projectsRes.ok && vesselsRes.ok;
   const projects = projectsRes.ok ? extractProjects(projectsRes.body) : [];
-  const vessels = vesselsRes.ok ? extractVessels(vesselsRes.body) : [];
+  const otherVessels: BackgroundTarget[] = [];
+  const vessels = vesselsRes.ok
+    ? extractVessels(vesselsRes.body, otherVessels)
+    : [];
 
   let tracks: TrackFeature[] = [];
   let projectAreas: ProjectAreaFeature[] = [];
@@ -757,6 +782,7 @@ export async function loadFleet(): Promise<FleetPayload> {
       companyNameFrom(vesselsRes.body) || companyNameFrom(projectsRes.body),
     projects,
     vessels,
+    otherVessels,
     tracks,
     projectAreas,
     weather,

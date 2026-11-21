@@ -29,6 +29,19 @@ export type VesselFeature = {
   imo?: number;
 };
 
+export type BackgroundTargetKind = "ais" | "aton" | "cable";
+
+/** AIS targets hidden from the fleet view by default (other traffic, ATON, cables). */
+export type BackgroundTarget = {
+  id: string;
+  name: string;
+  lat: number;
+  lon: number;
+  kind: BackgroundTargetKind;
+  objectType?: string;
+  ageH?: string;
+};
+
 export type TrackFeature = {
   vessel: string;
   vesselIMO?: number;
@@ -122,14 +135,15 @@ export type FleetPayload = {
   companyName?: string;
   projects: ProjectRow[];
   vessels: VesselFeature[];
+  otherVessels?: BackgroundTarget[];
   tracks: TrackFeature[];
   projectAreas: ProjectAreaFeature[];
   weather: WeatherPayload;
   projectCount: number;
   vesselCount: number;
   connection: ConnectionStatus;
-  /** Redacted raw Havian JSON for debugging in the UI (no secrets). */
-  raw: {
+  /** Redacted raw Havian JSON; /api/fleet only includes it with `?debug=1`. */
+  raw?: {
     projects: unknown;
     vessels: unknown;
     tracks?: unknown;
