@@ -668,10 +668,38 @@ select {
   background: rgba(12, 107, 107, 0.1);
 }
 
+.side-list .vessel-row-main {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
 .side-list .name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.side-list .power-meta {
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  line-height: 1.25;
+}
+
+.side-list .power-source {
+  margin: 0 1rem 0.35rem;
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+}
+
+.side-list .power-source.sample {
+  color: var(--warn);
+}
+
+.side-list .power-source.live {
+  color: var(--ok);
 }
 
 .dot {

@@ -21,6 +21,9 @@ import type {
   TrackFeature,
   VesselFeature,
 } from "@/lib/types";
+import type { VesselPower } from "@/lib/power-types";
+import { ramformMatchFromName } from "@/lib/power-types";
+
 type Props = {
   vessels: VesselFeature[];
   tracks?: TrackFeature[];
@@ -29,9 +32,16 @@ type Props = {
   showAreas?: boolean;
   otherVessels?: BackgroundTarget[];
   showOther?: boolean;
+  /** Propulsion / compressor kW keyed by Ramform match (titan, atlas, …). */
+  powerByMatch?: Record<string, VesselPower>;
   focusId: string | null;
   focusNonce?: number;
 };
+
+function fmtKw(v: number | null | undefined): string {
+  if (v == null || Number.isNaN(v)) return "—";
+  return `${Math.round(v).toLocaleString("nb-NO")} kW`;
+}
 
 /** Leaflet bindPopup takes raw HTML; Havian strings must not be interpreted as markup. */
 function escapeHtml(text: string): string {
@@ -191,10 +201,12 @@ const VesselMarker = memo(function VesselMarker({
   vessel,
   active,
   focusNonce = 0,
+  power,
 }: {
   vessel: VesselFeature;
   active: boolean;
   focusNonce?: number;
+  power?: VesselPower;
 }) {
   const markerRef = useRef<LeafletMarker | null>(null);
 
@@ -248,6 +260,14 @@ const VesselMarker = memo(function VesselMarker({
           </dd>
           <dt>Alder</dt>
           <dd>{vessel.ageH || "—"}</dd>
+          {power ? (
+            <>
+              <dt>Propulsion</dt>
+              <dd>{fmtKw(power.propulsionKw)}</dd>
+              <dt>Compressor</dt>
+              <dd>{fmtKw(power.compressorKw)}</dd>
+            </>
+          ) : null}
         </dl>
       </Popup>
     </Marker>
@@ -386,6 +406,7 @@ export default function FleetMap({
   showAreas = true,
   otherVessels = EMPTY_TARGETS,
   showOther = false,
+  powerByMatch = {},
   focusId,
   focusNonce = 0,
 }: Props) {
@@ -419,14 +440,19 @@ export default function FleetMap({
         <BackgroundTargetsLayer targets={otherVessels} />
       ) : null}
       {showTracks ? <TrackLayers tracks={tracks} /> : null}
-      {plotted.map((vessel) => (
-        <VesselMarker
-          key={vessel.id}
-          vessel={vessel}
-          active={focusId === vessel.id}
-          focusNonce={focusId === vessel.id ? focusNonce : 0}
-        />
-      ))}
+      {plotted.map((vessel) => {
+        const match = ramformMatchFromName(vessel.name);
+        const power = match ? powerByMatch[match] : undefined;
+        return (
+          <VesselMarker
+            key={vessel.id}
+            vessel={vessel}
+            active={focusId === vessel.id}
+            focusNonce={focusId === vessel.id ? focusNonce : 0}
+            power={power}
+          />
+        );
+      })}
     </MapContainer>
   );
 }

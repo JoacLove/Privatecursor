@@ -9,6 +9,9 @@ import type {
   WeatherForecastRow,
   WeatherObservation,
 } from "@/lib/types";
+import type { FleetPowerPayload, VesselPower } from "@/lib/power-types";
+import { ramformMatchFromName } from "@/lib/power-types";
+
 const FleetMap = dynamic(() => import("./FleetMap"), {
   ssr: false,
   loading: () => <div className="map-loading">Laster kart…</div>,
@@ -32,6 +35,11 @@ function formatBerlin(iso?: string): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? null : berlinTime.format(d);
+}
+
+function fmtKw(v: number | null | undefined): string {
+  if (v == null || Number.isNaN(v)) return "—";
+  return `${Math.round(v).toLocaleString("nb-NO")} kW`;
 }
 
 function latestObservationPerVessel(
@@ -70,6 +78,7 @@ function compactForecast(rows: WeatherForecastRow[]): WeatherForecastRow[] {
 
 export default function HavianApp() {
   const [data, setData] = useState<FleetPayload | null>(null);
+  const [power, setPower] = useState<FleetPowerPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<ViewMode>("map");
@@ -89,14 +98,24 @@ export default function HavianApp() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/fleet", { cache: "no-store" });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `HTTP ${res.status}`);
+      const [fleetRes, powerRes] = await Promise.all([
+        fetch("/api/fleet", { cache: "no-store" }),
+        fetch("/api/power", { cache: "no-store" }).catch(() => null),
+      ]);
+      if (!fleetRes.ok) {
+        const body = await fleetRes.json().catch(() => ({}));
+        throw new Error(body.error || `HTTP ${fleetRes.status}`);
       }
-      const json = (await res.json()) as FleetPayload;
+      const json = (await fleetRes.json()) as FleetPayload;
       setData(json);
       lastLoadRef.current = Date.now();
+
+      if (powerRes?.ok) {
+        const powerJson = (await powerRes.json()) as FleetPowerPayload;
+        setPower(powerJson);
+      } else {
+        setPower(null);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Kunne ikke hente data");
     } finally {
@@ -121,6 +140,14 @@ export default function HavianApp() {
       document.removeEventListener("visibilitychange", tick);
     };
   }, [load]);
+
+  const powerByMatch = useMemo(() => {
+    const map: Record<string, VesselPower> = {};
+    for (const row of power?.vessels ?? []) {
+      map[row.match] = row;
+    }
+    return map;
+  }, [power]);
 
   const focusVessel = useCallback((id: string) => {
     setFocusId(id);
@@ -368,6 +395,7 @@ export default function HavianApp() {
                 showAreas={showAreas}
                 otherVessels={otherVessels}
                 showOther={showOther}
+                powerByMatch={powerByMatch}
                 focusId={focusId}
                 focusNonce={focusNonce}
               />
@@ -403,23 +431,45 @@ export default function HavianApp() {
             <aside className="side-column">
               <div className="side-list">
                 <h2>Fartøy ({vessels.length})</h2>
+                {power ? (
+                  <p
+                    className={`power-source ${power.source === "sample" ? "sample" : "live"}`}
+                  >
+                    {power.source === "sample"
+                      ? "Effekt: sample (Høglund)"
+                      : "Effekt: live (Høglund)"}
+                  </p>
+                ) : null}
                 <ul>
-                  {vessels.slice(0, 80).map((v) => (
-                    <li key={v.id}>
-                      <button
-                        type="button"
-                        className={focusId === v.id ? "active" : ""}
-                        onClick={() => focusVessel(v.id)}
-                      >
-                        <span className="name">{v.name}</span>
-                        <span
-                          className={`dot ${v.online ? "on" : "off"}`}
-                          role="img"
-                          aria-label={v.online ? "Online" : "Offline"}
-                        />
-                      </button>
-                    </li>
-                  ))}
+                  {vessels.slice(0, 80).map((v) => {
+                    const match = ramformMatchFromName(v.name);
+                    const pw = match ? powerByMatch[match] : undefined;
+                    return (
+                      <li key={v.id}>
+                        <button
+                          type="button"
+                          className={focusId === v.id ? "active" : ""}
+                          onClick={() => focusVessel(v.id)}
+                        >
+                          <span className="vessel-row-main">
+                            <span className="name">{v.name}</span>
+                            {pw ? (
+                              <span className="power-meta">
+                                Propulsion {fmtKw(pw.propulsionKw)}
+                                <span aria-hidden> · </span>
+                                Compressor {fmtKw(pw.compressorKw)}
+                              </span>
+                            ) : null}
+                          </span>
+                          <span
+                            className={`dot ${v.online ? "on" : "off"}`}
+                            role="img"
+                            aria-label={v.online ? "Online" : "Offline"}
+                          />
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
               <WeatherPanel
@@ -440,7 +490,11 @@ export default function HavianApp() {
               wide
             />
             <ProjectTable rows={projects} />
-            <VesselTable rows={vessels} onFocus={focusVessel} />
+            <VesselTable
+              rows={vessels}
+              onFocus={focusVessel}
+              powerByMatch={powerByMatch}
+            />
           </div>
         )}
 
@@ -697,9 +751,11 @@ function ProjectTable({ rows }: { rows: ProjectRow[] }) {
 function VesselTable({
   rows,
   onFocus,
+  powerByMatch,
 }: {
   rows: VesselFeature[];
   onFocus: (id: string) => void;
+  powerByMatch: Record<string, VesselPower>;
 }) {
   return (
     <section className="table-card">
@@ -711,28 +767,36 @@ function VesselTable({
               <th>Name</th>
               <th>Type</th>
               <th>Online</th>
+              <th>Propulsion</th>
+              <th>Compressor</th>
               <th>Position</th>
             </tr>
           </thead>
           <tbody>
-            {rows.slice(0, 100).map((v) => (
-              <tr key={v.id}>
-                <td>
-                  <button
-                    type="button"
-                    className="linkish"
-                    onClick={() => onFocus(v.id)}
-                  >
-                    {v.name}
-                  </button>
-                </td>
-                <td>{v.objectType || "—"}</td>
-                <td>{v.online ? "Online" : "Offline"}</td>
-                <td>
-                  {v.lat.toFixed(2)}, {v.lon.toFixed(2)}
-                </td>
-              </tr>
-            ))}
+            {rows.slice(0, 100).map((v) => {
+              const match = ramformMatchFromName(v.name);
+              const pw = match ? powerByMatch[match] : undefined;
+              return (
+                <tr key={v.id}>
+                  <td>
+                    <button
+                      type="button"
+                      className="linkish"
+                      onClick={() => onFocus(v.id)}
+                    >
+                      {v.name}
+                    </button>
+                  </td>
+                  <td>{v.objectType || "—"}</td>
+                  <td>{v.online ? "Online" : "Offline"}</td>
+                  <td>{pw ? fmtKw(pw.propulsionKw) : "—"}</td>
+                  <td>{pw ? fmtKw(pw.compressorKw) : "—"}</td>
+                  <td>
+                    {v.lat.toFixed(2)}, {v.lon.toFixed(2)}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
