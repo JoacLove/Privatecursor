@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   MapContainer,
   TileLayer,
@@ -9,12 +9,14 @@ import {
   CircleMarker,
   useMap,
 } from "react-leaflet";
+import type { Marker as LeafletMarker } from "leaflet";
 import L from "leaflet";
 import type { VesselFeature } from "@/lib/types";
 
 type Props = {
   vessels: VesselFeature[];
   focusId: string | null;
+  focusNonce?: number;
 };
 
 function vesselIcon(online: boolean, active: boolean) {
@@ -26,7 +28,7 @@ function vesselIcon(online: boolean, active: boolean) {
   });
 }
 
-function FitVessels({ vessels, focusId }: Props) {
+function FitVessels({ vessels, focusId, focusNonce = 0 }: Props) {
   const map = useMap();
 
   useEffect(() => {
@@ -58,12 +60,60 @@ function FitVessels({ vessels, focusId }: Props) {
       maxZoom: 8,
       padding: [36, 36],
     });
-  }, [vessels, focusId, map]);
+  }, [vessels, focusId, focusNonce, map]);
 
   return null;
 }
 
-export default function FleetMap({ vessels, focusId }: Props) {
+function VesselMarker({
+  vessel,
+  active,
+  focusNonce = 0,
+}: {
+  vessel: VesselFeature;
+  active: boolean;
+  focusNonce?: number;
+}) {
+  const markerRef = useRef<LeafletMarker | null>(null);
+
+  useEffect(() => {
+    if (!active) return;
+    const timer = window.setTimeout(() => {
+      markerRef.current?.openPopup();
+    }, 320);
+    return () => window.clearTimeout(timer);
+  }, [active, focusNonce]);
+
+  return (
+    <Marker
+      ref={markerRef}
+      position={[vessel.lat, vessel.lon]}
+      icon={vesselIcon(Boolean(vessel.online), active)}
+    >
+      <Popup>
+        <div className="popup-title">{vessel.name}</div>
+        <dl className="popup-grid">
+          <dt>Type</dt>
+          <dd>{vessel.objectType || "—"}</dd>
+          <dt>Status</dt>
+          <dd>{vessel.online ? "Online" : "Offline"}</dd>
+          <dt>SOG</dt>
+          <dd>
+            {vessel.velocity != null ? `${vessel.velocity.toFixed(1)} kn` : "—"}
+          </dd>
+          <dt>Kurs</dt>
+          <dd>
+            {vessel.course != null ? `${Math.round(vessel.course)}°` : "—"}
+          </dd>
+          <dt>Alder</dt>
+          <dd>{vessel.ageH || "—"}</dd>
+        </dl>
+      </Popup>
+    </Marker>
+  );
+}
+
+export default function FleetMap({ vessels, focusId, focusNonce = 0 }: Props) {
   const plotted = useMemo(() => vessels.slice(0, 400), [vessels]);
 
   return (
@@ -79,7 +129,7 @@ export default function FleetMap({ vessels, focusId }: Props) {
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         maxZoom={19}
       />
-      <FitVessels vessels={plotted} focusId={focusId} />
+      <FitVessels vessels={plotted} focusId={focusId} focusNonce={focusNonce} />
       {plotted.map((vessel) => (
         <CircleMarker
           key={`pin-${vessel.id}`}
@@ -99,31 +149,12 @@ export default function FleetMap({ vessels, focusId }: Props) {
         />
       ))}
       {plotted.map((vessel) => (
-        <Marker
+        <VesselMarker
           key={vessel.id}
-          position={[vessel.lat, vessel.lon]}
-          icon={vesselIcon(Boolean(vessel.online), focusId === vessel.id)}
-        >
-          <Popup>
-            <div className="popup-title">{vessel.name}</div>
-            <dl className="popup-grid">
-              <dt>Type</dt>
-              <dd>{vessel.objectType || "—"}</dd>
-              <dt>Status</dt>
-              <dd>{vessel.online ? "Online" : "Offline"}</dd>
-              <dt>SOG</dt>
-              <dd>
-                {vessel.velocity != null ? `${vessel.velocity.toFixed(1)} kn` : "—"}
-              </dd>
-              <dt>Kurs</dt>
-              <dd>
-                {vessel.course != null ? `${Math.round(vessel.course)}°` : "—"}
-              </dd>
-              <dt>Alder</dt>
-              <dd>{vessel.ageH || "—"}</dd>
-            </dl>
-          </Popup>
-        </Marker>
+          vessel={vessel}
+          active={focusId === vessel.id}
+          focusNonce={focusNonce}
+        />
       ))}
     </MapContainer>
   );

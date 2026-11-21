@@ -8,6 +8,18 @@ export function sampleFleet(): FleetPayload {
     companyName: "TGS (sample)",
     projectCount: 6,
     vesselCount: 5,
+    connection: {
+      ok: false,
+      mode: "sample",
+      authHeader: "AUTHTOKEN",
+      configPresent: false,
+      endpoints: [],
+      message: "Sample data",
+    },
+    raw: {
+      projects: { note: "sample" },
+      vessels: { note: "sample" },
+    },
     projects: [
       {
         projectId: 3001,

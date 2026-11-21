@@ -1,9 +1,19 @@
-import type { FleetPayload, ProjectRow, VesselFeature } from "./types";
+import type {
+  ConnectionStatus,
+  EndpointStatus,
+  FleetPayload,
+  ProjectRow,
+  VesselFeature,
+} from "./types";
 import { sampleFleet } from "./sample";
 
 function env(name: string): string | undefined {
   const value = process.env[name]?.trim();
   return value || undefined;
+}
+
+function authHeaderName(): string {
+  return env("HAVIAN_AUTH_HEADER") || "AUTHTOKEN";
 }
 
 function hasLiveConfig(): boolean {
@@ -19,11 +29,22 @@ function redactSecrets(text: string): string {
   return out;
 }
 
-async function havianGet(fn: string, action: string): Promise<unknown> {
+function redactJson(value: unknown): unknown {
+  return JSON.parse(redactSecrets(JSON.stringify(value ?? null)));
+}
+
+type HavianResult = {
+  ok: boolean;
+  status: number;
+  body: unknown;
+  error?: string;
+};
+
+async function havianGet(fn: string, action: string): Promise<HavianResult> {
   const endpoint = env("HAVIAN_ENDPOINT")!.replace(/\/$/, "");
   const apiKey = env("HAVIAN_API_KEY")!;
   const authKey = env("HAVIAN_AUTH_KEY")!;
-  const authHeader = env("HAVIAN_AUTH_HEADER") || "AUTHTOKEN";
+  const authHeader = authHeaderName();
   const version = env("HAVIAN_VERSION") || "v1";
 
   const url = new URL(`${endpoint}/${version}/`);
@@ -42,16 +63,26 @@ async function havianGet(fn: string, action: string): Promise<unknown> {
   });
 
   const text = await response.text();
+  const safeText = redactSecrets(text);
+
   if (!response.ok) {
-    throw new Error(
-      `Havian ${fn}/${action} failed: ${response.status} ${redactSecrets(text).slice(0, 200)}`
-    );
+    return {
+      ok: false,
+      status: response.status,
+      body: null,
+      error: `HTTP ${response.status}: ${safeText.slice(0, 300)}`,
+    };
   }
 
   try {
-    return JSON.parse(text);
+    return { ok: true, status: response.status, body: JSON.parse(text) };
   } catch {
-    throw new Error(`Havian ${fn}/${action} returned non-JSON`);
+    return {
+      ok: false,
+      status: response.status,
+      body: null,
+      error: `Non-JSON response: ${safeText.slice(0, 300)}`,
+    };
   }
 }
 
@@ -78,7 +109,7 @@ function extractProjects(body: unknown): ProjectRow[] {
 function extractVessels(body: unknown): VesselFeature[] {
   const report =
     body && typeof body === "object" && "report" in body
-      ? (body as { report?: { geojson?: { features?: unknown[] }; companyName?: string } }).report
+      ? (body as { report?: { geojson?: { features?: unknown[] } } }).report
       : undefined;
   const features = report?.geojson?.features;
   if (!Array.isArray(features)) return [];
@@ -121,25 +152,97 @@ function companyNameFrom(body: unknown): string | undefined {
 }
 
 export async function loadFleet(): Promise<FleetPayload> {
+  const header = authHeaderName();
+
   if (!hasLiveConfig()) {
-    return sampleFleet();
+    const sample = sampleFleet();
+    return {
+      ...sample,
+      connection: {
+        ok: false,
+        mode: "sample",
+        authHeader: header,
+        configPresent: false,
+        endpoints: [],
+        message:
+          "Missing HAVIAN_ENDPOINT / HAVIAN_API_KEY / HAVIAN_AUTH_KEY — showing sample data",
+      },
+      raw: {
+        projects: { note: "sample mode — no live Havian response" },
+        vessels: { note: "sample mode — no live Havian response" },
+      },
+    };
   }
 
-  const [projectsBody, vesselsBody] = await Promise.all([
+  const [projectsRes, vesselsRes] = await Promise.all([
     havianGet("project", "getProjects"),
     havianGet("vessel", "getVesselLocations"),
   ]);
 
-  const projects = extractProjects(projectsBody);
-  const vessels = extractVessels(vesselsBody);
+  const endpoints: EndpointStatus[] = [
+    {
+      function: "project",
+      action: "getProjects",
+      ok: projectsRes.ok,
+      status: projectsRes.status,
+      error: projectsRes.error,
+      authHeader: header,
+    },
+    {
+      function: "vessel",
+      action: "getVesselLocations",
+      ok: vesselsRes.ok,
+      status: vesselsRes.status,
+      error: vesselsRes.error,
+      authHeader: header,
+    },
+  ];
+
+  const ok = projectsRes.ok && vesselsRes.ok;
+  const projects = projectsRes.ok ? extractProjects(projectsRes.body) : [];
+  const vessels = vesselsRes.ok ? extractVessels(vesselsRes.body) : [];
+
+  const connection: ConnectionStatus = {
+    ok,
+    mode: ok ? "live" : "sample",
+    authHeader: header,
+    configPresent: true,
+    endpoints,
+    message: ok
+      ? `Connected to Havian with header ${header}`
+      : `Havian request failed (header ${header})`,
+  };
+
+  if (!ok) {
+    const sample = sampleFleet();
+    return {
+      ...sample,
+      source: "sample",
+      connection,
+      raw: {
+        projects: projectsRes.ok
+          ? redactJson(projectsRes.body)
+          : { error: projectsRes.error },
+        vessels: vesselsRes.ok
+          ? redactJson(vesselsRes.body)
+          : { error: vesselsRes.error },
+      },
+    };
+  }
 
   return {
     source: "live",
     fetchedAt: new Date().toISOString(),
-    companyName: companyNameFrom(vesselsBody) || companyNameFrom(projectsBody),
+    companyName:
+      companyNameFrom(vesselsRes.body) || companyNameFrom(projectsRes.body),
     projects,
     vessels,
     projectCount: projects.length,
     vesselCount: vessels.length,
+    connection,
+    raw: {
+      projects: redactJson(projectsRes.body),
+      vessels: redactJson(vesselsRes.body),
+    },
   };
 }

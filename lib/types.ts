@@ -25,6 +25,24 @@ export type VesselFeature = {
   gpsTimeH?: string;
 };
 
+export type EndpointStatus = {
+  function: string;
+  action: string;
+  ok: boolean;
+  status: number | null;
+  error?: string;
+  authHeader: string;
+};
+
+export type ConnectionStatus = {
+  ok: boolean;
+  mode: DataSource;
+  authHeader: string;
+  configPresent: boolean;
+  endpoints: EndpointStatus[];
+  message: string;
+};
+
 export type FleetPayload = {
   source: DataSource;
   fetchedAt: string;
@@ -33,4 +51,10 @@ export type FleetPayload = {
   vessels: VesselFeature[];
   projectCount: number;
   vesselCount: number;
+  connection: ConnectionStatus;
+  /** Redacted raw Havian JSON for debugging in the UI (no secrets). */
+  raw: {
+    projects: unknown;
+    vessels: unknown;
+  };
 };

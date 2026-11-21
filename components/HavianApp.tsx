@@ -21,6 +21,7 @@ export default function HavianApp() {
     "all"
   );
   const [focusId, setFocusId] = useState<string | null>(null);
+  const [focusNonce, setFocusNonce] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -43,6 +44,12 @@ export default function HavianApp() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const focusVessel = useCallback((id: string) => {
+    setFocusId(id);
+    setFocusNonce((n) => n + 1);
+    setView("map");
+  }, []);
 
   const projects = useMemo(() => {
     const rows = data?.projects ?? [];
@@ -69,6 +76,12 @@ export default function HavianApp() {
     );
   }, [data, query]);
 
+  useEffect(() => {
+    if (focusId && !vessels.some((v) => v.id === focusId)) {
+      setFocusId(null);
+    }
+  }, [vessels, focusId]);
+
   const activeProjects = useMemo(
     () => (data?.projects ?? []).filter((p) => p.statusName === "Active").length,
     [data]
@@ -82,16 +95,37 @@ export default function HavianApp() {
           <h1 className="brand">Havian</h1>
         </div>
         <nav className="nav-links" aria-label="Hovedmeny">
-          <span className="nav-active">Dashboards</span>
-          <span>Events</span>
-          <span>Tools</span>
-          <span>Vessel Reports</span>
+          <span className="nav-active" aria-current="page">
+            Dashboards
+          </span>
+          <span
+            className="nav-disabled"
+            title="Kun i Havian Global Manager — ikke tilgjengelig her"
+            aria-disabled="true"
+          >
+            Events
+          </span>
+          <span
+            className="nav-disabled"
+            title="Kun i Havian Global Manager — ikke tilgjengelig her"
+            aria-disabled="true"
+          >
+            Tools
+          </span>
+          <span
+            className="nav-disabled"
+            title="Kun i Havian Global Manager — ikke tilgjengelig her"
+            aria-disabled="true"
+          >
+            Vessel Reports
+          </span>
         </nav>
         <div className="top-actions">
           <div className="view-toggle" role="group" aria-label="Visning">
             <button
               type="button"
               className={view === "map" ? "on" : ""}
+              aria-pressed={view === "map"}
               onClick={() => setView("map")}
             >
               Map
@@ -99,13 +133,20 @@ export default function HavianApp() {
             <button
               type="button"
               className={view === "table" ? "on" : ""}
+              aria-pressed={view === "table"}
               onClick={() => setView("table")}
             >
               Table
             </button>
           </div>
-          <button type="button" className="refresh" onClick={() => void load()}>
-            Oppdater
+          <button
+            type="button"
+            className="refresh"
+            onClick={() => void load()}
+            disabled={loading}
+            aria-busy={loading}
+          >
+            {loading ? "Oppdaterer…" : "Oppdater"}
           </button>
         </div>
       </header>
@@ -117,7 +158,7 @@ export default function HavianApp() {
         </div>
         <div className="chip">
           Vessels
-          <strong>{data?.vesselCount ?? 0}</strong>
+          <strong>{query ? vessels.length : (data?.vesselCount ?? 0)}</strong>
         </div>
         <label className="filter">
           <span>Status</span>
@@ -140,12 +181,38 @@ export default function HavianApp() {
             placeholder="Søk prosjekt eller fartøy"
           />
         </label>
-        {data?.source === "sample" ? (
-          <div className="sample-badge">Sample data — bind Havian-secrets for live</div>
+        {data?.connection?.ok ? (
+          <div className="live-badge">
+            API connected · header {data.connection.authHeader}
+          </div>
         ) : (
-          <div className="live-badge">Live · {data?.companyName || "Havian"}</div>
+          <div className="sample-badge">
+            {data?.connection?.message || "API not connected"}
+          </div>
         )}
       </section>
+
+      {data?.connection && (
+        <section className="api-status" aria-live="polite">
+          <div className={`api-pill ${data.connection.ok ? "ok" : "bad"}`}>
+            {data.connection.ok ? "Havian API: OK" : "Havian API: FAIL"}
+          </div>
+          <p className="api-msg">{data.connection.message}</p>
+          <ul className="api-endpoints">
+            {data.connection.endpoints.map((ep) => (
+              <li key={`${ep.function}/${ep.action}`}>
+                <code>
+                  {ep.function}/{ep.action}
+                </code>
+                <span className={ep.ok ? "ok" : "bad"}>
+                  {ep.ok ? `HTTP ${ep.status}` : ep.error || `HTTP ${ep.status}`}
+                </span>
+                <span className="hdr">header: {ep.authHeader}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <main className="stage">
         {loading && !data ? (
@@ -159,7 +226,7 @@ export default function HavianApp() {
           </div>
         ) : view === "map" ? (
           <div className="map-pane">
-            <FleetMap vessels={vessels} focusId={focusId} />
+            <FleetMap vessels={vessels} focusId={focusId} focusNonce={focusNonce} />
             <aside className="side-list">
               <h2>Fartøy ({vessels.length})</h2>
               <ul>
@@ -168,7 +235,7 @@ export default function HavianApp() {
                     <button
                       type="button"
                       className={focusId === v.id ? "active" : ""}
-                      onClick={() => setFocusId(v.id)}
+                      onClick={() => focusVessel(v.id)}
                     >
                       <span className="name">{v.name}</span>
                       <span className={`dot ${v.online ? "on" : "off"}`} />
@@ -181,14 +248,22 @@ export default function HavianApp() {
         ) : (
           <div className="tables">
             <ProjectTable rows={projects} />
-            <VesselTable
-              rows={vessels}
-              onFocus={(id) => {
-                setFocusId(id);
-                setView("map");
-              }}
-            />
+            <VesselTable rows={vessels} onFocus={focusVessel} />
           </div>
+        )}
+
+        {data?.raw && (
+          <section className="raw-json">
+            <h2>Raw Havian JSON (secrets redacted)</h2>
+            <details open>
+              <summary>project/getProjects</summary>
+              <pre>{JSON.stringify(data.raw.projects, null, 2)}</pre>
+            </details>
+            <details>
+              <summary>vessel/getVesselLocations</summary>
+              <pre>{JSON.stringify(data.raw.vessels, null, 2)}</pre>
+            </details>
+          </section>
         )}
       </main>
     </div>
