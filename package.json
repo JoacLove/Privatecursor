@@ -1,0 +1,13 @@
+{
+  "name": "havian-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:connection": "node src/test-connection.mjs",
+    "get": "node src/cli.mjs"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7"
+  }
+}
