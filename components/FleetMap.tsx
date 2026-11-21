@@ -6,7 +6,6 @@ import {
   TileLayer,
   Marker,
   Popup,
-  CircleMarker,
   useMap,
 } from "react-leaflet";
 import type { Marker as LeafletMarker } from "leaflet";
@@ -19,12 +18,33 @@ type Props = {
   focusNonce?: number;
 };
 
-function vesselIcon(online: boolean, active: boolean) {
+/** Prefer heading when present, else course (degrees, 0 = north). */
+function bearingDegrees(vessel: VesselFeature): number | undefined {
+  const raw =
+    typeof vessel.heading === "number"
+      ? vessel.heading
+      : typeof vessel.course === "number"
+        ? vessel.course
+        : undefined;
+  if (raw == null || !Number.isFinite(raw)) return undefined;
+  // Normalize into [0, 360)
+  return ((raw % 360) + 360) % 360;
+}
+
+function vesselIcon(online: boolean, active: boolean, bearing?: number) {
+  const hasBearing = bearing != null;
+  const courseStyle = hasBearing
+    ? `style="--course:${bearing}deg"`
+    : "";
+  const shape = hasBearing
+    ? `<div class="hull arrow" ${courseStyle}><svg viewBox="0 0 24 28" aria-hidden="true"><path d="M12 1.5 L21.5 26.5 L12 21 L2.5 26.5 Z"/></svg></div>`
+    : `<div class="hull neutral"></div>`;
+
   return L.divIcon({
-    className: `vessel-marker${online ? " online" : " offline"}${active ? " active" : ""}`,
-    html: '<div class="hull"></div>',
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
+    className: `vessel-marker${online ? " online" : " offline"}${active ? " active" : ""}${hasBearing ? " has-course" : " no-course"}`,
+    html: shape,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
   });
 }
 
@@ -84,11 +104,17 @@ function VesselMarker({
     return () => window.clearTimeout(timer);
   }, [active, focusNonce]);
 
+  const bearing = bearingDegrees(vessel);
+  const icon = useMemo(
+    () => vesselIcon(Boolean(vessel.online), active, bearing),
+    [vessel.online, active, bearing],
+  );
+
   return (
     <Marker
       ref={markerRef}
       position={[vessel.lat, vessel.lon]}
-      icon={vesselIcon(Boolean(vessel.online), active)}
+      icon={icon}
     >
       <Popup>
         <div className="popup-title">{vessel.name}</div>
@@ -130,24 +156,6 @@ export default function FleetMap({ vessels, focusId, focusNonce = 0 }: Props) {
         maxZoom={19}
       />
       <FitVessels vessels={plotted} focusId={focusId} focusNonce={focusNonce} />
-      {plotted.map((vessel) => (
-        <CircleMarker
-          key={`pin-${vessel.id}`}
-          center={[vessel.lat, vessel.lon]}
-          radius={focusId === vessel.id ? 9 : 7}
-          pathOptions={{
-            color: focusId === vessel.id ? "#0b3d91" : "#0f5132",
-            fillColor: vessel.online
-              ? focusId === vessel.id
-                ? "#1d4f91"
-                : "#1f7a4d"
-              : "#64748b",
-            fillOpacity: 0.95,
-            weight: 2,
-            opacity: 0.95,
-          }}
-        />
-      ))}
       {plotted.map((vessel) => (
         <VesselMarker
           key={vessel.id}

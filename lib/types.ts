@@ -16,6 +16,8 @@ export type VesselFeature = {
   lat: number;
   lon: number;
   course?: number;
+  /** True heading in degrees when provided by Havian; preferred over course for marker rotation. */
+  heading?: number;
   velocity?: number;
   online?: boolean;
   objectType?: string;

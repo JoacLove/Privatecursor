@@ -133,6 +133,7 @@ function extractVessels(body: unknown): VesselFeature[] {
       lat,
       lon,
       course: typeof props.course === "number" ? props.course : undefined,
+      heading: typeof props.heading === "number" ? props.heading : undefined,
       velocity: typeof props.velocity === "number" ? props.velocity : undefined,
       online: props.online === 1 || props.online === true,
       objectType: props.objectType ? String(props.objectType) : undefined,
